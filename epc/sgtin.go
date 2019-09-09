@@ -79,8 +79,10 @@ type SGTIN struct {
 	serial        string
 }
 
-// NewSGTIN returns an SGTIN structure with the given values and, potentially,
-// an error if the given set of values are inconsistent with the SGTIN standard.
+// NewSGTIN returns an SGTIN with the given values. If the parameters are
+// inconsistent with the SGTIN standard, error is non-nil, but this still
+// returns the inconsistent SGTIN. The validation methods on such an SGTIN will
+// fail, but the URI and GTIN methods will still attempt to return a value.
 func NewSGTIN(filter FilterValue, partition, indicator, companyPrefix, itemRef int, serial string) (SGTIN, error) {
 	s := SGTIN{
 		filter:        filter,
@@ -108,6 +110,9 @@ func DecodeSGTINString(epc string) (SGTIN, error) {
 
 // SGTINToGTIN14 is a convenience method for decoding an SGTIN encoded EPC
 // from a big-endian, hex string to its corresponding GS1 GTIN element string.
+//
+// The SGTIN's values ARE validated using ValidateRanges, and this if they are
+// invalid, this function returns that error.
 func SGTINToGTIN14(epc string) (string, error) {
 	sgtin, err := DecodeSGTINString(epc)
 	if err != nil {
@@ -121,6 +126,9 @@ func SGTINToGTIN14(epc string) (string, error) {
 
 // SGTINToPureURI is a convenience method for decoding an SGTIN encoded EPC
 // from a big-endian, hex string to its corresponding GS1 Pure Identity URI.
+//
+// The SGTIN's values ARE validated using ValidateRanges, and this if they are
+// invalid, this function returns that error.
 func SGTINToPureURI(epc string) (string, error) {
 	sgtin, err := DecodeSGTINString(epc)
 	if err != nil {
@@ -162,6 +170,11 @@ func (sgtin SGTIN) ValidateRanges() error {
 		return errors.Errorf("SGTIN serial numbers are limited to at most "+
 			"20 characters, but this serial has %d characters", len(sgtin.serial))
 	}
+	if !IsGS1AIEncodable(sgtin.serial) {
+		return errors.Errorf("SGTIN serial numbers may only contain ASCII "+
+			"characters in the GS1 AI Encodable Character Set 82, but this serial "+
+			"is '%s', which has illegal characters.", sgtin.serial)
+	}
 	return nil
 }
 
@@ -176,7 +189,7 @@ func (sgtin SGTIN) CanSGTIN96() error {
 	}
 	_, err := strconv.ParseUint(sgtin.serial, 10, 38)
 	if err != nil {
-		return err
+		return errors.Wrap(err, "SGTIN96 serial numbers must be numeric")
 	}
 	if sgtin.serial[0] == '0' && sgtin.serial != "0" {
 		return errors.New("serials cannot have leading '0's, " +
@@ -203,6 +216,7 @@ func (sgtin SGTIN) GTIN() string {
 
 // URI returns the EPC Pure Identity URI for this SGTIN, of the format:
 //     urn:epc:id:sgtin:CompanyPrefix.ItemRefAndIndicator.SerialNumber
+// The serial number is escaped, if necessary, to conform with GS1 specs.
 func (sgtin SGTIN) URI() string {
 	if sgtin.partition == 0 {
 		// no item reference; just indicator
@@ -210,13 +224,13 @@ func (sgtin SGTIN) URI() string {
 			SGTINPureURIPrefix,
 			12-sgtin.partition, sgtin.companyPrefix,
 			sgtin.indicator,
-			sgtin.serial)
+			gs1Escaper.Replace(sgtin.serial))
 	}
 	return fmt.Sprintf("%s:%0[2]*d.%d%0[5]*d.%s",
 		SGTINPureURIPrefix,
 		12-sgtin.partition, sgtin.companyPrefix,
 		sgtin.indicator, sgtin.partition, sgtin.itemRef,
-		sgtin.serial)
+		gs1Escaper.Replace(sgtin.serial))
 }
 
 // checkSum returns the portion of the GS1 check sum that n contributes, given
@@ -265,7 +279,6 @@ var (
 	filterExt    = bitextract.New(8, 3)
 	partitionExt = bitextract.New(11, 3)
 	serial96Ext  = bitextract.New(58, 38)
-	serial198Ext = bitextract.New(58, 140)
 
 	// which bits are the company prefix and which are the indicator/item ref
 	// depend on the partition; the whole space is 44 bits wide, but divided
@@ -319,7 +332,12 @@ var (
 )
 
 // DecodeSGTIN decodes SGTIN-96 and SGTIN-198 encoded EPCs to SGTIN structures,
-// or returns an error if the data isn't valid.
+// or returns an error if the data cannot be converted to an SGTIN.
+//
+// If the data encodes an SGTIN with values inconsistent with the EPC Tag Data
+// Standard, but otherwise valid, error is nil and the SGTIN represents the data
+// as it was encoded. Use ValidateRanges to determine if the SGTIN's ranges fall
+// outside the allowable widths.
 //
 // For SGTIN-198, the data's leading bit should be the first bit of the first
 // byte, and the final byte should be padded with two trailing 0s, since 198
@@ -340,7 +358,8 @@ func DecodeSGTIN(b []byte) (SGTIN, error) {
 		if len(b) != SGTIN198NumBytes {
 			return SGTIN{}, errors.Errorf("SGTIN-198 should have %d bytes", SGTIN198NumBytes)
 		}
-		serial = fmt.Sprintf("%d", serial198Ext.Extract(b))
+		// SGTIN-198 serials are 20, 7-bit ISO 646 values
+		serial = DecodeASCII(b[serialStartBit/8:])
 	default:
 		return SGTIN{}, errors.Errorf("not an SGTIN header: %#X", b[0])
 	}

@@ -17,7 +17,7 @@
  * notice embedded in Materials by Intel or Intel's suppliers or licensors in any way.
  */
 
-package tagcode
+package bittag
 
 import (
 	"github.impcloud.net/RSP-Inventory-Suite/expect"
@@ -27,8 +27,8 @@ import (
 func TestNewBitTagDecoder(t *testing.T) {
 	w := expect.WrapT(t)
 
-	decoder := w.ShouldHaveResult(NewBitTagDecoder(
-		"test.com", "2019-01-01", []int{8, 48, 40})).(BitTagDecoder)
+	decoder := w.ShouldHaveResult(New(
+		"test.com", "2019-01-01", []int{8, 48, 40})).(Decoder)
 
 	bitTag, err := decoder.DecodeString("0F00000000000C00000014D2")
 	w.As("decoding").ShouldSucceed(err)

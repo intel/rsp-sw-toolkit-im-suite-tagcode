@@ -79,6 +79,10 @@ type SGTIN struct {
 	serial        string
 }
 
+func (s *SGTIN) Serial() string {
+	return s.serial
+}
+
 // NewSGTIN returns an SGTIN with the given values. If the parameters are
 // inconsistent with the SGTIN standard, error is non-nil, but this still
 // returns the inconsistent SGTIN. The validation methods on such an SGTIN will
@@ -271,14 +275,27 @@ func (sgtin SGTIN) checkDigit() int {
 }
 
 const (
-	gcpStartBit    = 8 + 3 + 3        // header + filter + partition
-	serialStartBit = gcpStartBit + 44 // company prefix + IIR field
+	headerLen    = 8
+	filterLen    = 3
+	partitionLen = 3
+	prefixIIRLen = 44
+	serial96Len  = 96 - serialStartBit
+	serial198Len = 198 - serialStartBit
+
+	headerStartBit    = 0
+	filterStartBit    = headerStartBit + headerLen
+	partitionStartBit = filterStartBit + filterLen
+	gcpStartBit       = partitionStartBit + partitionLen
+	serialStartBit    = gcpStartBit + prefixIIRLen
+
+	serialStartByte = serialStartBit / 8
+	serialOffsetBit = serialStartBit % 8
 )
 
 var (
-	filterExt    = bitextract.New(8, 3)
-	partitionExt = bitextract.New(11, 3)
-	serial96Ext  = bitextract.New(58, 38)
+	filterExt    = bitextract.New(filterStartBit, filterLen)
+	partitionExt = bitextract.New(partitionStartBit, partitionLen)
+	serial96Ext  = bitextract.New(serialStartBit, serial96Len)
 
 	// which bits are the company prefix and which are the indicator/item ref
 	// depend on the partition; the whole space is 44 bits wide, but divided
@@ -359,7 +376,7 @@ func DecodeSGTIN(b []byte) (SGTIN, error) {
 			return SGTIN{}, errors.Errorf("SGTIN-198 should have %d bytes", SGTIN198NumBytes)
 		}
 		// SGTIN-198 serials are 20, 7-bit ISO 646 values
-		serial = DecodeASCII(b[serialStartBit/8:])
+		serial = DecodeASCIIAt(b[serialStartByte:], serialOffsetBit)
 	default:
 		return SGTIN{}, errors.Errorf("not an SGTIN header: %#X", b[0])
 	}

@@ -120,9 +120,9 @@ func (be BitExtractor) Extract(src []byte) []byte {
 
 func (be BitExtractor) ExtractTo(dest, src []byte) {
 	if len(src) < be.srcLen+be.byteStart {
-		panic(fmt.Sprintf("cannot extract source[%d, %d] (len %d) "+
-			"as source has total length %d", be.byteStart, be.byteStart+be.srcLen,
-			be.srcLen, len(src)))
+		panic(fmt.Sprintf("cannot extract %d bytes from source[%d:%d], "+
+			"as it only has %d total bytes",
+			be.srcLen, be.byteStart, be.byteStart+be.srcLen, len(src)))
 	}
 
 	if len(dest) < be.dstLen {

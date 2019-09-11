@@ -27,7 +27,7 @@ import (
 func TestNewBitTagDecoder(t *testing.T) {
 	w := expect.WrapT(t)
 
-	decoder := w.ShouldHaveResult(New(
+	decoder := w.ShouldHaveResult(NewDecoder(
 		"test.com", "2019-01-01", []int{8, 48, 40})).(Decoder)
 
 	bitTag, err := decoder.DecodeString("0F00000000000C00000014D2")

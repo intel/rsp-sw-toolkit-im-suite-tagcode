@@ -88,11 +88,15 @@ type Decoder struct {
 	bitextract.BitExploder
 }
 
+func (d *Decoder) Prefix() string {
+	return d.uriPrefix
+}
+
 // New returns a new Decoder with the given authority and date which will break
 // binary tag data into fields of the given bit widths.
 //
 // See SetTaggingEntity for restrictions  the authority and date strings.
-func New(authority, date string, widths []int) (Decoder, error) {
+func NewDecoder(authority, date string, widths []int) (Decoder, error) {
 	btd := Decoder{}
 	if err := btd.SetTaggingEntity(authority, date); err != nil {
 		return btd, err

@@ -1,6 +1,7 @@
 package epc
 
 import (
+	"fmt"
 	"github.impcloud.net/RSP-Inventory-Suite/tagcode/bitextract"
 	"strings"
 )
@@ -9,12 +10,12 @@ var (
 	asciiExtracts = []bitextract.BitExtractor{
 		bitextract.New(0, 7),
 		bitextract.New(7, 7),
-		bitextract.New(14, 7),
-		bitextract.New(21, 7),
-		bitextract.New(28, 7),
-		bitextract.New(35, 7),
-		bitextract.New(42, 7),
-		bitextract.New(49, 7),
+		bitextract.New(6, 7),
+		bitextract.New(5, 7),
+		bitextract.New(4, 7),
+		bitextract.New(3, 7),
+		bitextract.New(2, 7),
+		bitextract.New(1, 7),
 	}
 
 	gs1Escaper = strings.NewReplacer(
@@ -66,6 +67,10 @@ var (
 // DecodeASCII decodes 7-bit ISO-646 packed ASCII bit strings into their UTF-8
 // representations.
 //
+// This function expects the first bit of the first character to be the first
+// bit of the first byte of the input. If the first bit of the first character
+// is offset within the first byte, use DecodeASCIIAt(data, offset).
+//
 // Essentially, this just expands the input such that every consecutive run of
 // 7 bits is placed into its own byte with a leading 0. Note that as far as this
 // function is concerned, there are no invalid inputs.
@@ -83,9 +88,34 @@ var (
 //
 // An empty or nil input results in an empty return string.
 func DecodeASCII(data []byte) string {
-	outdata := make([]byte, len(data)*8/7)
+	return DecodeASCIIAt(data, 0)
+}
+
+// DecodeASCIIAt works like DecodeASCII, but expects the bit of the first ASCII
+// character to start at the bit offset within the first byte.
+//
+// E.g., DecodeASCIIAt(data, 2) expects the first ASCII character to start at
+// bit 2; bits 0 & 1 of byte 0 are skipped, then bits 2-7 of byte 0 are combined
+// with bit 0 of byte 1 and inserted into the output byte 0, bits 1-7 (bit 0 of
+// ASCII bytes are always 0).
+//
+// Panics if the offset isn't in [0, 7].
+func DecodeASCIIAt(data []byte, offset int) string {
+	if offset < 0 || offset > 7 {
+		panic(fmt.Errorf("invalid offset %d", offset))
+	}
+
+	outbyteLen := ((len(data) * 8) - offset) / 7
+	if outbyteLen <= 0 {
+		return ""
+	}
+
+	ext := (8 - offset) % 8
+	outdata := make([]byte, outbyteLen)
 	for i := 0; i < len(outdata); i++ {
-		asciiExtracts[i%8].ExtractTo(outdata[i:], data[7*(i/8):])
+		inbyte := i - ((i + 7 - offset) / 8)
+		asciiExtracts[ext%8].ExtractTo(outdata[i:], data[inbyte:])
+		ext++
 	}
 	return string(outdata)
 }
@@ -129,9 +159,9 @@ func IsGS1AIEncodable(s string) bool {
 	return true
 }
 
-// IsGS1AICandPEncodable returns true if the string contains only characters
+// IsGS1CompPartEncodable returns true if the string contains only characters
 // allowed in the GS1 Application Identifier for Component and Parts character set.
-func IsGS1AICAndPEncodable(s string) bool {
+func IsGS1CompPartEncodable(s string) bool {
 	for i := range s {
 		if !(s[i] <= 127 && gs1AICPCharSet[s[i]&0x7F] == 1) {
 			return false

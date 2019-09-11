@@ -172,3 +172,76 @@ func TestUnescapeGS1(t *testing.T) {
 		})
 	}
 }
+
+func TestIsGS1AIEncodable(t *testing.T) {
+	valid := `!"%&'()*+,-./:;<=>?_0123456789` +
+		`ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz`
+
+	for i, s := range valid {
+		name := fmt.Sprintf("IndividualChar_%02d_%q", i, s)
+		t.Run(name, func(t *testing.T) {
+			expect.WrapT(t).ShouldBeTrue(IsGS1AIEncodable(string(s)))
+		})
+	}
+
+	// all of these are valid SGTIN-198 serials
+	for i, s := range []string{
+		"", `"Hello_World!"`, "1&2", "lorem_%%ipsum", "123//4567890",
+		"<<open", "close>>", "...==?!?!?!?", "''_(--)_//", `/`, "+++---+++",
+		":)*****;)******:,(",
+	} {
+		name := fmt.Sprintf("ValidStrs_%02d_%q", i, s)
+		t.Run(name, func(t *testing.T) {
+			w := expect.WrapT(t)
+			w.ShouldContain(valid, s) // same validation, but slow
+			w.ShouldBeTrue(IsGS1AIEncodable(s))
+		})
+	}
+
+	for i, s := range []string{
+		" ", `"Hello World!"`, "lorem~~ipsum", "#",
+		"\u1234", "\x00", "\x01", "\x80", "with\nbreak",
+		"$$&&$$", "A@B.com", "insert[here]", "^_^", "`", ":{", "|", "}",
+	} {
+		name := fmt.Sprintf("InvalidStrs_%02d_%q", i, s)
+		t.Run(name, func(t *testing.T) {
+			w := expect.WrapT(t)
+			w.ShouldBeFalse(IsGS1AIEncodable(s))
+		})
+	}
+}
+
+func TestIsGS1CompPartEncable(t *testing.T) {
+	valid := `#-/0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ`
+
+	for i, s := range valid {
+		name := fmt.Sprintf("IndividualChar_%02d_%q", i, s)
+		t.Run(name, func(t *testing.T) {
+			expect.WrapT(t).ShouldBeTrue(IsGS1CompPartEncodable(string(s)))
+		})
+	}
+
+	for i, s := range []string{
+		"", `HELLO-WORLD`, "---////---", "###1234567890###",
+	} {
+		name := fmt.Sprintf("ValidStrs_%02d_%q", i, s)
+		t.Run(name, func(t *testing.T) {
+			w := expect.WrapT(t)
+			w.ShouldContain(valid, s) // same validation, but slow
+			w.ShouldBeTrue(IsGS1CompPartEncodable(s))
+		})
+	}
+
+	for i, s := range []string{
+		"!", `"`, "%", "&", "'", "(", ")", "*", "+", ",", ".",
+		" ", `"Hello_World!"`, "lorem~~ipsum",
+		"\u1234", "\x00", "\x01", "\x80", "with\nbreak",
+		"$$&&$$", "A@B.com", "insert[here]", "^_^", "`", ":{", "|", "}",
+	} {
+		name := fmt.Sprintf("InvalidStrs_%02d_%q", i, s)
+		t.Run(name, func(t *testing.T) {
+			w := expect.WrapT(t)
+			w.ShouldBeFalse(IsGS1CompPartEncodable(s))
+		})
+	}
+}

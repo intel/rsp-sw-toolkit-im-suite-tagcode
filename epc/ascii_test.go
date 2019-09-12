@@ -19,6 +19,7 @@ func getASCII(s string, offset uint) []byte {
 	if len(s) == 0 {
 		return []byte{}
 	}
+
 	// convert to binary byte string
 	bitStr := fmt.Sprintf("%08b", []byte(s))
 	// remove '[', ']', " "s and delete leading '0's on each byte
@@ -29,6 +30,9 @@ func getASCII(s string, offset uint) []byte {
 		bitStr = "1111111"[7-offset:] + bitStr
 	}
 
+	// prepend an extra byte to keep nulls
+	bitStr = "00000001" + bitStr
+
 	// right pad to a multiple of 8 0s
 	if len(bitStr)%8 != 0 {
 		bitStr += "00000000"[len(bitStr)%8:]
@@ -36,7 +40,7 @@ func getASCII(s string, offset uint) []byte {
 
 	// use a BigInt to convert to the binary string back to bytes
 	i, _ := new(big.Int).SetString(bitStr, 2)
-	b := i.Bytes()
+	b := i.Bytes()[1:] // ignore the first prepended byte
 
 	// mask out the offset
 	b[0] &= 0xFF >> offset
@@ -44,7 +48,7 @@ func getASCII(s string, offset uint) []byte {
 }
 
 func TestGS1ASCIIDecode(t *testing.T) {
-	for i, s := range []string{
+	for _, s := range []string{
 		"a", "A", "!",
 		"a!",
 		"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYXYZ",
@@ -55,16 +59,13 @@ func TestGS1ASCIIDecode(t *testing.T) {
 		"hello_world!",
 	} {
 		for offset := 0; offset < 8; offset++ {
-			var name string
-			if len(s) <= 10 {
-				name = fmt.Sprintf("TestASCIIDecode_%02d_%d_'%s'", i, offset, s)
-			} else {
-				name = fmt.Sprintf("TestASCIIDecode_%02d_%d_'%s'...", i, offset, s[:10])
+			name := fmt.Sprintf("DecodeOffset_%d_%q", offset, s)
+			if len(s) >= 20 {
+				name = name[:20] + "..."
 			}
 			t.Run(name, func(t *testing.T) {
 				w := expect.WrapT(t)
 				enc := getASCII(s, uint(offset))
-				w.Logf("%X", enc)
 
 				// validate the encoded length so we know we're doing the right thing
 				if offset == 0 {
@@ -77,14 +78,53 @@ func TestGS1ASCIIDecode(t *testing.T) {
 						ShouldBeEqual(expLen, len(enc))
 				}
 
-				decoded := DecodeASCIIAt(enc, offset)
+				decoded, n, b := DecodeASCIIAt(enc, offset)
+				w.ShouldBeFalse(b)
 				if (offset+len(s)*7)%8 == 1 && len(decoded) != 0 {
-					// if the input data had 7 trailing bits, the output will
-					// have an extra null character, so we chop it off here.
+					w.ShouldBeEqual(n, len(decoded)-1)
 					w.StopOnMismatch().ShouldBeEqual(decoded[len(decoded)-1], byte(0))
-					decoded = decoded[:len(decoded)-1]
+					decoded = decoded[:n]
+				} else {
+					w.ShouldBeEqual(n, len(decoded))
 				}
 				w.ShouldBeEqual(decoded, s)
+			})
+		}
+	}
+}
+
+func TestDecodeNulls(t *testing.T) {
+	for _, s := range []string{
+		"\x00", "\x00\x00", "abc\x00\x00\x00",
+	} {
+		for offset := 0; offset < 8; offset++ {
+			var name string
+			name = fmt.Sprintf("NullTerminated_%d_%q", offset, s)
+			t.Run(name, func(t *testing.T) {
+				w := expect.WrapT(t)
+				enc := getASCII(s, uint(offset))
+				decoded, n, b := DecodeASCIIAt(enc, offset)
+				w.ShouldNotBeEmptyStr(decoded)
+				w.As(n).ShouldBeTrue(n <= len(s)+1)
+				w.As(n).ShouldBeTrue(n <= len(enc))
+				w.ShouldBeFalse(b)
+			})
+		}
+	}
+
+	for _, s := range []string{
+		"\x00a", "\x00a\x00", "a\x00b\x00c\x00",
+	} {
+		for offset := 0; offset < 8; offset++ {
+			var name string
+			name = fmt.Sprintf("CharAfterNull_%d_%q", offset, s)
+			t.Run(name, func(t *testing.T) {
+				w := expect.WrapT(t)
+				enc := getASCII(s, uint(offset))
+				decoded, n, b := DecodeASCIIAt(enc, offset)
+				w.ShouldNotBeEmptyStr(decoded)
+				w.ShouldBeTrue(n <= len(s)+1)
+				w.ShouldBeTrue(b)
 			})
 		}
 	}
@@ -95,7 +135,7 @@ func TestEscapeGS1(t *testing.T) {
 	for i, s := range []string{
 		"\"", "#", "%", "&", "/", "<", ">", "?",
 	} {
-		name := fmt.Sprintf("OnlyChar_%02d_%q", i, s)
+		name := fmt.Sprintf("OnlyChar_%q", s)
 		t.Run(name, func(t *testing.T) {
 			expect.WrapT(t).ShouldBeEqual(EscapeGS1(s), escapes[i])
 		})
@@ -105,27 +145,27 @@ func TestEscapeGS1(t *testing.T) {
 		"hello\"world", "hi#there", "lorem_% ipsum", "dolar&", "123/",
 		"<open", "close>", "?..",
 	} {
-		name := fmt.Sprintf("InStr_%02d_%q", i, s)
+		name := fmt.Sprintf("InStr_%q", s)
 		t.Run(name, func(t *testing.T) {
 			expect.WrapT(t).ShouldContainStr(EscapeGS1(s), escapes[i])
 		})
 	}
 
-	for i, s := range []string{
+	for _, s := range []string{
 		"hello world", "hi there", "lorem_  ipsum", "dolar ", "123 ",
 		" open", "close ", " ..",
 	} {
-		name := fmt.Sprintf("NoEscapes_%02d_%q", i, s)
+		name := fmt.Sprintf("NoEscapes_%q", s)
 		t.Run(name, func(t *testing.T) {
 			expect.WrapT(t).ShouldBeEqual(EscapeGS1(s), s)
 		})
 	}
 
-	for i, s := range []string{
+	for _, s := range []string{
 		"hello\"world", "hi#there", "lorem_% ipsum", "dolar&", "123/",
 		"<open", "close>", "?..",
 	} {
-		name := fmt.Sprintf("RoundTrip_%02d_%q", i, s)
+		name := fmt.Sprintf("RoundTrip_%q", s)
 		t.Run(name, func(t *testing.T) {
 			expect.WrapT(t).ShouldBeEqual(UnescapeGS1(EscapeGS1(s)), s)
 		})
@@ -136,7 +176,7 @@ func TestUnescapeGS1(t *testing.T) {
 	unescapes := []string{"\"", "#", "%", "&", "/", "<", ">", "?"}
 	for i, s := range []string{
 		"%22", "%23", "%25", "%26", "%2F", "%3C", "%3E", "%3F"} {
-		name := fmt.Sprintf("OnlyChar_%02d_%q", i, s)
+		name := fmt.Sprintf("OnlyChar_%q", s)
 		t.Run(name, func(t *testing.T) {
 			expect.WrapT(t).ShouldBeEqual(UnescapeGS1(s), unescapes[i])
 		})
@@ -146,27 +186,27 @@ func TestUnescapeGS1(t *testing.T) {
 		"hello%22world", "hi%23there", "lorem_%25 ipsum", "dolar%26", "123%2F",
 		"%3Copen", "close%3E", "%3F..",
 	} {
-		name := fmt.Sprintf("InStr_%02d_%q", i, s)
+		name := fmt.Sprintf("InStr_%q", s)
 		t.Run(name, func(t *testing.T) {
 			expect.WrapT(t).ShouldContainStr(UnescapeGS1(s), unescapes[i])
 		})
 	}
 
-	for i, s := range []string{
+	for _, s := range []string{
 		"hello world", "hi there", "lorem_  ipsum", "dolar ", "123 ",
 		" open", "close ", " ..", "%10",
 	} {
-		name := fmt.Sprintf("NoEscapes_%02d_%q", i, s)
+		name := fmt.Sprintf("NoEscapes_%q", s)
 		t.Run(name, func(t *testing.T) {
 			expect.WrapT(t).ShouldBeEqual(UnescapeGS1(s), s)
 		})
 	}
 
-	for i, s := range []string{
+	for _, s := range []string{
 		"hello%22world", "hi%23there", "lorem_%25 ipsum", "dolar%26", "123%2F",
 		"%3Copen", "close%3E", "%3F..",
 	} {
-		name := fmt.Sprintf("RoundTrip_%02d_%q", i, s)
+		name := fmt.Sprintf("RoundTrip_%q", s)
 		t.Run(name, func(t *testing.T) {
 			expect.WrapT(t).ShouldBeEqual(EscapeGS1(UnescapeGS1(s)), s)
 		})
@@ -174,23 +214,25 @@ func TestUnescapeGS1(t *testing.T) {
 }
 
 func TestIsGS1AIEncodable(t *testing.T) {
+	// all valid chars + null
 	valid := `!"%&'()*+,-./:;<=>?_0123456789` +
-		`ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz`
+		"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz\x00"
 
-	for i, s := range valid {
-		name := fmt.Sprintf("IndividualChar_%02d_%q", i, s)
+	for _, s := range valid[:len(valid)-1] {
+		name := fmt.Sprintf("IndividualChar_%q", s)
 		t.Run(name, func(t *testing.T) {
 			expect.WrapT(t).ShouldBeTrue(IsGS1AIEncodable(string(s)))
 		})
 	}
 
 	// all of these are valid SGTIN-198 serials
-	for i, s := range []string{
+	for _, s := range []string{
 		"", `"Hello_World!"`, "1&2", "lorem_%%ipsum", "123//4567890",
 		"<<open", "close>>", "...==?!?!?!?", "''_(--)_//", `/`, "+++---+++",
-		":)*****;)******:,(",
+		":)*****;)******:,(", "hello_world!\x00\x00\x00\x00\x00\x00",
+		"\x00\x00",
 	} {
-		name := fmt.Sprintf("ValidStrs_%02d_%q", i, s)
+		name := fmt.Sprintf("ValidStrs_%q", s)
 		t.Run(name, func(t *testing.T) {
 			w := expect.WrapT(t)
 			w.ShouldContain(valid, s) // same validation, but slow
@@ -198,12 +240,12 @@ func TestIsGS1AIEncodable(t *testing.T) {
 		})
 	}
 
-	for i, s := range []string{
+	for _, s := range []string{
 		" ", `"Hello World!"`, "lorem~~ipsum", "#",
-		"\u1234", "\x00", "\x01", "\x80", "with\nbreak",
+		"\u1234", "HELLO\x00WORLD", "\x01", "\x80", "with\nbreak",
 		"$$&&$$", "A@B.com", "insert[here]", "^_^", "`", ":{", "|", "}",
 	} {
-		name := fmt.Sprintf("InvalidStrs_%02d_%q", i, s)
+		name := fmt.Sprintf("InvalidStrs_%q", s)
 		t.Run(name, func(t *testing.T) {
 			w := expect.WrapT(t)
 			w.ShouldBeFalse(IsGS1AIEncodable(s))
@@ -212,19 +254,21 @@ func TestIsGS1AIEncodable(t *testing.T) {
 }
 
 func TestIsGS1CompPartEncable(t *testing.T) {
-	valid := `#-/0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ`
+	// valid chars, plus null
+	valid := `#-/0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ` + "\x00"
 
-	for i, s := range valid {
-		name := fmt.Sprintf("IndividualChar_%02d_%q", i, s)
+	for _, s := range valid[:len(valid)-1] {
+		name := fmt.Sprintf("IndividualChar_%q", s)
 		t.Run(name, func(t *testing.T) {
 			expect.WrapT(t).ShouldBeTrue(IsGS1CompPartEncodable(string(s)))
 		})
 	}
 
-	for i, s := range []string{
+	for _, s := range []string{
 		"", `HELLO-WORLD`, "---////---", "###1234567890###",
+		"HELLO-WORLD\x00\x00", "\x00\x00",
 	} {
-		name := fmt.Sprintf("ValidStrs_%02d_%q", i, s)
+		name := fmt.Sprintf("ValidStrs_%q", s)
 		t.Run(name, func(t *testing.T) {
 			w := expect.WrapT(t)
 			w.ShouldContain(valid, s) // same validation, but slow
@@ -232,13 +276,13 @@ func TestIsGS1CompPartEncable(t *testing.T) {
 		})
 	}
 
-	for i, s := range []string{
+	for _, s := range []string{
 		"!", `"`, "%", "&", "'", "(", ")", "*", "+", ",", ".",
 		" ", `"Hello_World!"`, "lorem~~ipsum",
-		"\u1234", "\x00", "\x01", "\x80", "with\nbreak",
+		"\u1234", "HELLO\x00WOLRD", "\x01", "\x80", "with\nbreak",
 		"$$&&$$", "A@B.com", "insert[here]", "^_^", "`", ":{", "|", "}",
 	} {
-		name := fmt.Sprintf("InvalidStrs_%02d_%q", i, s)
+		name := fmt.Sprintf("InvalidStrs_%q", s)
 		t.Run(name, func(t *testing.T) {
 			w := expect.WrapT(t)
 			w.ShouldBeFalse(IsGS1CompPartEncodable(s))

@@ -27,6 +27,7 @@ var (
 		`<`, "%3C",
 		`>`, "%3E",
 		`?`, "%3F",
+		"\x00", "",
 	)
 
 	gs1Unescaper = strings.NewReplacer(
@@ -65,11 +66,12 @@ var (
 )
 
 // DecodeASCII decodes 7-bit ISO-646 packed ASCII bit strings into their UTF-8
-// representations.
+// representations, starting at the given bit offset.
 //
-// This function expects the first bit of the first character to be the first
-// bit of the first byte of the input. If the first bit of the first character
-// is offset within the first byte, use DecodeASCIIAt(data, offset).
+// E.g., DecodeASCIIAt(data, 2) expects the first ASCII character to start at
+// bit 2; bits 0 & 1 of byte 0 are skipped, then bits 2-7 of byte 0 are combined
+// with bit 0 of byte 1 and inserted into the output byte 0, bits 1-7 (bit 0 of
+// ASCII bytes are always 0).
 //
 // Essentially, this just expands the input such that every consecutive run of
 // 7 bits is placed into its own byte with a leading 0. Note that as far as this
@@ -78,46 +80,45 @@ var (
 // If the incoming data isn't a multiple of 7 bits, the final bits are ignored,
 // and the string will have floor(len(data)*8/7) characters.
 //
-// If the original string had a multiple of 7 ASCII characters, the final data
-// byte's most significant bit is the final ASCII bit, but the remaining 7 bits
-// are indistinguishable from any other ASCII character; thus, the returned
-// string will have an extra character relative the original ASCII string. Since
-// Go allows 0x00 in strings, this is true even if the final bits are all 0s.
-// The best way to handle this is to slice the returned string to the number of
-// characters in the expected output.
+// The returned values are the UTF-8 string, the number of chars before a null
+// byte, and whether there are any non-null characters after a null terminator.
+// Given the output (s, n, b), s[:n] is the slice of characters up to but not
+// including the first null terminator, regardless of whether it had a null byte
+// or extra characters following it.
 //
-// An empty or nil input results in an empty return string.
-func DecodeASCII(data []byte) string {
-	return DecodeASCIIAt(data, 0)
-}
-
-// DecodeASCIIAt works like DecodeASCII, but expects the bit of the first ASCII
-// character to start at the bit offset within the first byte.
-//
-// E.g., DecodeASCIIAt(data, 2) expects the first ASCII character to start at
-// bit 2; bits 0 & 1 of byte 0 are skipped, then bits 2-7 of byte 0 are combined
-// with bit 0 of byte 1 and inserted into the output byte 0, bits 1-7 (bit 0 of
-// ASCII bytes are always 0).
-//
-// Panics if the offset isn't in [0, 7].
-func DecodeASCIIAt(data []byte, offset int) string {
+// The function panics if the offset isn't in [0, 7].
+// An empty or nil input returns ("", 0).
+func DecodeASCIIAt(data []byte, offset int) (out string, nullTerm int, extra bool) {
 	if offset < 0 || offset > 7 {
 		panic(fmt.Errorf("invalid offset %d", offset))
 	}
 
 	outbyteLen := ((len(data) * 8) - offset) / 7
 	if outbyteLen <= 0 {
-		return ""
+		return "", 0, len(data) == 1 && data[0] != nullASCII
 	}
 
+	nullTerm = -1
 	ext := (8 - offset) % 8
 	outdata := make([]byte, outbyteLen)
 	for i := 0; i < len(outdata); i++ {
 		inbyte := i - ((i + 7 - offset) / 8)
 		asciiExtracts[ext%8].ExtractTo(outdata[i:], data[inbyte:])
 		ext++
+
+		if outdata[i] == nullASCII {
+			if nullTerm == -1 {
+				nullTerm = i
+			}
+		} else if nullTerm != -1 {
+			extra = true
+		}
 	}
-	return string(outdata)
+	out = string(outdata)
+	if nullTerm == -1 {
+		nullTerm = len(out)
+	}
+	return
 }
 
 // EscapeGS1 returns s with the following characters replaced by their GS1
@@ -130,6 +131,10 @@ func DecodeASCIIAt(data []byte, offset int) string {
 // - `<` -> "%3C"
 // - `>` -> "%3E"
 // - `?` -> "%3F"
+//
+// Additionally, removes null bytes. This function doesn't validate that the
+// character sequence is necessarily valid, since it may contain characters or
+// sequences that aren't otherwise valid.
 func EscapeGS1(s string) string {
 	return gs1Escaper.Replace(s)
 }
@@ -144,15 +149,27 @@ func EscapeGS1(s string) string {
 // - `<` -> "%3C"
 // - `>` -> "%3E"
 // - `?` -> "%3F"
+//
+// This function doesn't validate that the character sequence is valid.
 func UnescapeGS1(s string) string {
 	return gs1Unescaper.Replace(s)
 }
 
+const nullASCII = '\x00'
+
 // IsGS1Alphanumeric returns true if the string contains only characters allowed
-// in GS1 Application Identifier character set.
+// in GS1 Application Identifier character set, or null bytes NOT followed by
+// any non-null byte.
 func IsGS1AIEncodable(s string) bool {
 	for i := range s {
-		if !(s[i] <= 127 && gs1AICharSet[s[i]&0x7F] == 1) {
+		// null may only be followed by null
+		if s[i] == nullASCII {
+			for i++; i < len(s); i++ {
+				if s[i] != nullASCII {
+					return false
+				}
+			}
+		} else if !(s[i] <= 127 && gs1AICharSet[s[i]&0x7F] == 1) {
 			return false
 		}
 	}
@@ -160,10 +177,18 @@ func IsGS1AIEncodable(s string) bool {
 }
 
 // IsGS1CompPartEncodable returns true if the string contains only characters
-// allowed in the GS1 Application Identifier for Component and Parts character set.
+// allowed in the GS1 Application Identifier for Component and Parts character
+// set, or null bytes NOT followed by any non-null byte.
 func IsGS1CompPartEncodable(s string) bool {
 	for i := range s {
-		if !(s[i] <= 127 && gs1AICPCharSet[s[i]&0x7F] == 1) {
+		// null may only be followed by null
+		if s[i] == nullASCII {
+			for i++; i < len(s); i++ {
+				if s[i] != nullASCII {
+					return false
+				}
+			}
+		} else if !(s[i] <= 127 && gs1AICPCharSet[s[i]&0x7F] == 1) {
 			return false
 		}
 	}

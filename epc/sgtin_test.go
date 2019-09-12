@@ -27,7 +27,7 @@ import (
 	"testing"
 )
 
-func TestDecodeSGTIN96(t *testing.T) {
+func TestDecodeSGTIN(t *testing.T) {
 	type sgtinTest struct {
 		name, epc, uri, gtin string
 		badCode, badRange    bool
@@ -87,6 +87,11 @@ func TestDecodeSGTIN96(t *testing.T) {
 			"40004285602049", "000428560204.4.69940467929"),
 		pass("indicator 1", "3000011B896A506B29C18539",
 			"10011892394440", "001189239444.1.185384142137"),
+
+		pass("SGTIN-198-numeric", "36143639F8419198B966E1AB366E5B3470DC00000000000000",
+			"00888446671424", "0888446.067142.193853396487"),
+		pass("SGTIN-198-alpha", "36143639F84191A465D9B37A176C5EB1769D72E557D52E5CBC",
+			"00888446671424", "0888446.067142.Hello!;1=1;'..*_*..%2F"),
 
 		fail("Wrong header", "E2801160600002054CC2096F"),
 		fail("Too long for SGTIN-96", "3018000040000040000000011"),

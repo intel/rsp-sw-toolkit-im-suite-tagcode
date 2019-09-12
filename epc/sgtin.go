@@ -176,8 +176,9 @@ func (sgtin SGTIN) ValidateRanges() error {
 	}
 	if !IsGS1AIEncodable(sgtin.serial) {
 		return errors.Errorf("SGTIN serial numbers may only contain ASCII "+
-			"characters in the GS1 AI Encodable Character Set 82, but this serial "+
-			"is '%s', which has illegal characters.", sgtin.serial)
+			"characters in the GS1 AI Encodable Character Set 82 and trailing "+
+			"null bytes, but this serial is %q, which has illegal characters.",
+			sgtin.serial)
 	}
 	return nil
 }
@@ -220,7 +221,8 @@ func (sgtin SGTIN) GTIN() string {
 
 // URI returns the EPC Pure Identity URI for this SGTIN, of the format:
 //     urn:epc:id:sgtin:CompanyPrefix.ItemRefAndIndicator.SerialNumber
-// The serial number is escaped, if necessary, to conform with GS1 specs.
+// The serial number is escaped, if necessary, to conform with GS1 specs, but
+// it is not validated.
 func (sgtin SGTIN) URI() string {
 	if sgtin.partition == 0 {
 		// no item reference; just indicator
@@ -376,7 +378,12 @@ func DecodeSGTIN(b []byte) (SGTIN, error) {
 			return SGTIN{}, errors.Errorf("SGTIN-198 should have %d bytes", SGTIN198NumBytes)
 		}
 		// SGTIN-198 serials are 20, 7-bit ISO 646 values
-		serial = DecodeASCIIAt(b[serialStartByte:], serialOffsetBit)
+		s, n, charAfterNull := DecodeASCIIAt(b[serialStartByte:], serialOffsetBit)
+		if charAfterNull {
+			serial = s // technically, invalid
+		} else {
+			serial = s[:n]
+		}
 	default:
 		return SGTIN{}, errors.Errorf("not an SGTIN header: %#X", b[0])
 	}

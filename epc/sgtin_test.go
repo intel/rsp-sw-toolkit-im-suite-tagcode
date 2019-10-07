@@ -93,19 +93,25 @@ func TestDecodeSGTIN(t *testing.T) {
 		pass("SGTIN-198-alpha", "36143639F84191A465D9B37A176C5EB1769D72E557D52E5CBC",
 			"00888446671424", "0888446.067142.Hello!;1=1;'..*_*..%2F"),
 
-		fail("Wrong header", "E2801160600002054CC2096F"),
-		fail("Too long for SGTIN-96", "3018000040000040000000011"),
-		fail("Too Short for SGTIN-96", "30180000400000400000000"),
+		fail("Unknown header", "E2801160600002054CC2096F"),
+		fail("Too long for SGTIN-96", "30180000400000400000000011"),
+		fail("Too Short for SGTIN-96", "3018000040000040000000"),
+		fail("Too long for SGTIN-198", "36143639F84191A465D9B37A176C5EB1769D72E557D52E5CBADDFC"),
+		fail("Too short for SGTIN-198", "36143636C5EB1769D72E557D52E5CBADDFC"),
 		fail("Partition value should be <=6", "301C00004000004000000001"),
 
-		badRange("Item reference out of range", "300000181C2CCA93A8B43711"),
-		badRange("Item reference out of range", "30244032EACFFD45202001E8"),
+		badRange("Item reference out of range", "301000181C2CC193A8B43711"),
+		badRange("Item reference out of range", "361000181C2CC1A465D9B37A176C5EB1769D72E557D52E5CBC"),
+		badRange("Item reference out of range", "30244032EACFF145202001E8"),
+		badRange("Item reference out of range", "36244032EACFF1A465D9B37A176C5EB1769D72E557D52E5CBC"),
+		badRange("SGTIN-198 serial with chars after null", "36044032EAC191A465D9B37A176C5EB1769D72E557D5200CBC"),
 	} {
 		t.Run(fmt.Sprintf("%02d_%s", i, tt.name), func(t *testing.T) {
 			w := expect.WrapT(t)
 
 			s, err := DecodeSGTINString(tt.epc)
 			if tt.badCode {
+				w.Logf("%+v", err)
 				w.As(tt.epc).ShouldFail(err)
 				return
 			}
@@ -113,7 +119,8 @@ func TestDecodeSGTIN(t *testing.T) {
 			w.As(tt.epc).ShouldSucceed(err)
 
 			if tt.badRange {
-				w.ShouldFail(s.ValidateRanges())
+				err = w.As(fmt.Sprintf("%s: %+v", tt.epc, s)).ShouldFail(s.ValidateRanges())
+				w.Logf("%+v", err)
 			} else {
 				w.ShouldBeEqual(s.GTIN(), tt.gtin)
 				w.ShouldBeEqual(s.URI(), SGTINPureURIPrefix+":"+tt.uri)

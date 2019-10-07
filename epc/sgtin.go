@@ -154,10 +154,14 @@ func SGTINToPureURI(epc string) (string, error) {
 // they are otherwise legal.
 func (sgtin SGTIN) ValidateRanges() error {
 	if sgtin.indicator < 0 || sgtin.indicator > 9 {
-		return errors.Errorf("invalid indicator: %d", sgtin.indicator)
+		return errors.Errorf("indicator must be in [0,9], but is %d", sgtin.indicator)
+	}
+	if !sgtin.filter.IsValid() {
+		return errors.Errorf("filter must be in {0, 1, 3, 4, 6, 7, 8, 9}, "+
+			"but this is: %d", sgtin.filter)
 	}
 	if sgtin.partition < 0 || sgtin.partition > 6 {
-		return errors.Errorf("invalid partition: %d", sgtin.partition)
+		return errors.Errorf("partition must be in [0,6], but is %d", sgtin.partition)
 	}
 	if sgtin.itemRef < 0 || sgtin.itemRef > maxItems[sgtin.partition]-1 {
 		return errors.Errorf("item refs in partition %d must be in [0, %d], "+
@@ -177,7 +181,8 @@ func (sgtin SGTIN) ValidateRanges() error {
 	if !IsGS1AIEncodable(sgtin.serial) {
 		return errors.Errorf("SGTIN serial numbers may only contain ASCII "+
 			"characters in the GS1 AI Encodable Character Set 82 and trailing "+
-			"null bytes, but this serial is %q, which has illegal characters.",
+			"null bytes, but this serial is %q, which has illegal characters or"+
+			"characters following null.",
 			sgtin.serial)
 	}
 	return nil
@@ -353,11 +358,16 @@ var (
 // DecodeSGTIN decodes SGTIN-96 and SGTIN-198 encoded EPCs to SGTIN structures,
 // or returns an error if the data cannot be converted to an SGTIN.
 //
-// If the data encodes an SGTIN with values inconsistent with the EPC Tag Data
-// Standard, but otherwise valid, error is nil and the SGTIN represents the data
-// as it was encoded. Use ValidateRanges to determine if the SGTIN's ranges fall
-// outside the allowable widths.
+// If err is nil, it merely means the data's _could_ be split into SGTIN pieces,
+// but not that it represents a valid SGTIN. This function only returns an error
+// on empty input, unknown headers, invalid lengths for the format, and invalid
+// partition values (its value is necessary to split other fields). It does not
+// otherwise validate that the values fall within the range of acceptable, non-
+// reserved, encodeable values as defined by the EPC Tag Data Standard.
 //
+// Use ValidateRanges to check the values are within the EPC ranges.
+//
+// This function evaluates the MSB of the first byte as the MSB of the EPC data.
 // For SGTIN-198, the data's leading bit should be the first bit of the first
 // byte, and the final byte should be padded with two trailing 0s, since 198
 // bits is not otherwise byte-aligned.
@@ -370,29 +380,33 @@ func DecodeSGTIN(b []byte) (SGTIN, error) {
 	switch b[0] {
 	case SGTIN96Header:
 		if len(b) != SGTIN96NumBytes {
-			return SGTIN{}, errors.Errorf("SGTIN-96 should have %d bytes", SGTIN96NumBytes)
+			return SGTIN{}, errors.Errorf("SGTIN-96 should have %d bytes, "+
+				"but this has %d bytes", SGTIN96NumBytes, len(b))
 		}
 		serial = fmt.Sprintf("%d", int(serial96Ext.ExtractUInt64(b)))
 	case SGTIN198Header:
 		if len(b) != SGTIN198NumBytes {
-			return SGTIN{}, errors.Errorf("SGTIN-198 should have %d bytes", SGTIN198NumBytes)
+			return SGTIN{}, errors.Errorf("SGTIN-198 should have %d bytes, "+
+				"but this has %d bytes", SGTIN198NumBytes, len(b))
 		}
 		// SGTIN-198 serials are 20, 7-bit ISO 646 values
 		s, n, charAfterNull := DecodeASCIIAt(b[serialStartByte:], serialOffsetBit)
 		if charAfterNull {
-			serial = s // technically, invalid
+			serial = s // technically, invalid, but available for validation
 		} else {
-			serial = s[:n]
+			serial = s[:n] // null terminated
 		}
 	default:
-		return SGTIN{}, errors.Errorf("not an SGTIN header: %#X", b[0])
+		return SGTIN{}, errors.Errorf("SGTIN headers are 0x30 and 0x36, "+
+			"but this is: %#X", b[0])
 	}
+
 	filter := FilterValue(filterExt.ExtractUInt64(b))
-	if filter > 7 {
-		return SGTIN{}, errors.Errorf("invalid filter: %d", filter)
-	}
+
+	// most values we can safely validate later, but if the partition isn't
+	// valid, we don't know how to split the other values.
 	partition := int(partitionExt.ExtractUInt64(b))
-	if partition > 6 {
+	if partition < 0 || partition > 6 {
 		return SGTIN{}, errors.Errorf("invalid partition: %d", partition)
 	}
 

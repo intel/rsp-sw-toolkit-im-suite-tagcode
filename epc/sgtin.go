@@ -83,6 +83,22 @@ func (s *SGTIN) Serial() string {
 	return s.serial
 }
 
+func (s *SGTIN) Filter() FilterValue {
+	return s.filter
+}
+
+func (s *SGTIN) Partition() int {
+	return s.partition
+}
+
+func (s *SGTIN) CompanyPrefix() string {
+	return fmt.Sprintf("%0[1]*d", 12-s.partition, s.companyPrefix)
+}
+
+func (s *SGTIN) ItemReference() string {
+	return fmt.Sprintf("%0[1]*d", s.partition, s.itemRef)
+}
+
 // NewSGTIN returns an SGTIN with the given values. If the parameters are
 // inconsistent with the SGTIN standard, error is non-nil, but this still
 // returns the inconsistent SGTIN. The validation methods on such an SGTIN will
@@ -152,38 +168,38 @@ func SGTINToPureURI(epc string) (string, error) {
 // Prefix '02' are not valid GTINs and should not be encoded to SGTIN); this
 // method only validates that they fit within the available ranges, but not that
 // they are otherwise legal.
-func (sgtin SGTIN) ValidateRanges() error {
-	if sgtin.indicator < 0 || sgtin.indicator > 9 {
-		return errors.Errorf("indicator must be in [0,9], but is %d", sgtin.indicator)
+func (s SGTIN) ValidateRanges() error {
+	if s.indicator < 0 || s.indicator > 9 {
+		return errors.Errorf("indicator must be in [0,9], but is %d", s.indicator)
 	}
-	if !sgtin.filter.IsValid() {
+	if !s.filter.IsValid() {
 		return errors.Errorf("filter must be in {0, 1, 3, 4, 6, 7, 8, 9}, "+
-			"but this is: %d", sgtin.filter)
+			"but this is: %d", s.filter)
 	}
-	if sgtin.partition < 0 || sgtin.partition > 6 {
-		return errors.Errorf("partition must be in [0,6], but is %d", sgtin.partition)
+	if s.partition < 0 || s.partition > 6 {
+		return errors.Errorf("partition must be in [0,6], but is %d", s.partition)
 	}
-	if sgtin.itemRef < 0 || sgtin.itemRef > maxItems[sgtin.partition]-1 {
+	if s.itemRef < 0 || s.itemRef > maxItems[s.partition]-1 {
 		return errors.Errorf("item refs in partition %d must be in [0, %d], "+
-			"but is %d", sgtin.partition, maxItems[sgtin.partition]-1, sgtin.itemRef)
+			"but is %d", s.partition, maxItems[s.partition]-1, s.itemRef)
 	}
-	if sgtin.companyPrefix < 0 || sgtin.companyPrefix > maxPrefix[sgtin.partition] {
+	if s.companyPrefix < 0 || s.companyPrefix > maxPrefix[s.partition] {
 		return errors.Errorf("company prefix in partition %d must be in [0, %d], "+
-			"but is %d", sgtin.partition, maxPrefix[sgtin.partition], sgtin.companyPrefix)
+			"but is %d", s.partition, maxPrefix[s.partition], s.companyPrefix)
 	}
-	if sgtin.serial == "" {
+	if s.serial == "" {
 		return errors.New("serial is empty")
 	}
-	if len(sgtin.serial) > 20 {
+	if len(s.serial) > 20 {
 		return errors.Errorf("SGTIN serial numbers are limited to at most "+
-			"20 characters, but this serial has %d characters", len(sgtin.serial))
+			"20 characters, but this serial has %d characters", len(s.serial))
 	}
-	if !IsGS1AIEncodable(sgtin.serial) {
+	if !IsGS1AIEncodable(s.serial) {
 		return errors.Errorf("SGTIN serial numbers may only contain ASCII "+
 			"characters in the GS1 AI Encodable Character Set 82 and trailing "+
 			"null bytes, but this serial is %q, which has illegal characters or"+
 			"characters following null.",
-			sgtin.serial)
+			s.serial)
 	}
 	return nil
 }
@@ -193,15 +209,15 @@ func (sgtin SGTIN) ValidateRanges() error {
 // The EPC Tag Data Standard specifies that SGTIN-96 encoded serial numbers must
 // consist only of decimal values (0-9) less than 2^(38), with no leading '0's,
 // except for a single '0'.
-func (sgtin SGTIN) CanSGTIN96() error {
-	if sgtin.serial == "" {
+func (s SGTIN) CanSGTIN96() error {
+	if s.serial == "" {
 		return errors.New("serial is empty")
 	}
-	_, err := strconv.ParseUint(sgtin.serial, 10, 38)
+	_, err := strconv.ParseUint(s.serial, 10, 38)
 	if err != nil {
 		return errors.Wrap(err, "SGTIN96 serial numbers must be numeric")
 	}
-	if sgtin.serial[0] == '0' && sgtin.serial != "0" {
+	if s.serial[0] == '0' && s.serial != "0" {
 		return errors.New("serials cannot have leading '0's, " +
 			"except for the unique value '0'")
 	}
@@ -209,39 +225,39 @@ func (sgtin SGTIN) CanSGTIN96() error {
 }
 
 // GTIN returns the GS1 GTIN element string represented by this SGTIN.
-func (sgtin SGTIN) GTIN() string {
-	if sgtin.partition == 0 {
+func (s SGTIN) GTIN() string {
+	if s.partition == 0 {
 		// no item reference
 		return fmt.Sprintf("%d%012d%d",
-			sgtin.indicator,
-			sgtin.companyPrefix,
-			sgtin.checkDigit())
+			s.indicator,
+			s.companyPrefix,
+			s.checkDigit())
 	}
 	return fmt.Sprintf("%d%0[2]*d%0[4]*d%d",
-		sgtin.indicator,
-		12-sgtin.partition, sgtin.companyPrefix,
-		sgtin.partition, sgtin.itemRef,
-		sgtin.checkDigit())
+		s.indicator,
+		12-s.partition, s.companyPrefix,
+		s.partition, s.itemRef,
+		s.checkDigit())
 }
 
 // URI returns the EPC Pure Identity URI for this SGTIN, of the format:
 //     urn:epc:id:sgtin:CompanyPrefix.ItemRefAndIndicator.SerialNumber
 // The serial number is escaped, if necessary, to conform with GS1 specs, but
 // it is not validated.
-func (sgtin SGTIN) URI() string {
-	if sgtin.partition == 0 {
+func (s SGTIN) URI() string {
+	if s.partition == 0 {
 		// no item reference; just indicator
 		return fmt.Sprintf("%s:%0[2]*d.%d.%s",
 			SGTINPureURIPrefix,
-			12-sgtin.partition, sgtin.companyPrefix,
-			sgtin.indicator,
-			gs1Escaper.Replace(sgtin.serial))
+			12-s.partition, s.companyPrefix,
+			s.indicator,
+			gs1Escaper.Replace(s.serial))
 	}
 	return fmt.Sprintf("%s:%0[2]*d.%d%0[5]*d.%s",
 		SGTINPureURIPrefix,
-		12-sgtin.partition, sgtin.companyPrefix,
-		sgtin.indicator, sgtin.partition, sgtin.itemRef,
-		gs1Escaper.Replace(sgtin.serial))
+		12-s.partition, s.companyPrefix,
+		s.indicator, s.partition, s.itemRef,
+		gs1Escaper.Replace(s.serial))
 }
 
 // checkSum returns the portion of the GS1 check sum that n contributes, given
@@ -272,10 +288,10 @@ func checkSum(n, d1 int) (sum int) {
 }
 
 // checkDigit returns the GS1 check digit of the underlying GTIN value
-func (sgtin SGTIN) checkDigit() int {
-	sum := checkSum(sgtin.itemRef, 1) +
-		checkSum(sgtin.companyPrefix, 13-sgtin.partition) +
-		checkSum(sgtin.indicator, 13)
+func (s SGTIN) checkDigit() int {
+	sum := checkSum(s.itemRef, 1) +
+		checkSum(s.companyPrefix, 13-s.partition) +
+		checkSum(s.indicator, 13)
 
 	// mod 10 additive inverse
 	return (10 - (sum % 10)) % 10

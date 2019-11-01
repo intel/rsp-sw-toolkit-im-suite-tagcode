@@ -21,7 +21,7 @@ package epc
 
 import (
 	"fmt"
-	"github.impcloud.net/RSP-Inventory-Suite/expect"
+	"github.com/intel/rsp-sw-toolkit-im-suite-expect"
 	"math/big"
 	"strings"
 	"testing"

@@ -1,4 +1,4 @@
+github.com/intel/rsp-sw-toolkit-im-suite-expect v1.1.2 h1:fGdAErhMWv94CL60A8s870F/ruy/c5gs37+uOWIrD+0=
+github.com/intel/rsp-sw-toolkit-im-suite-expect v1.1.2/go.mod h1:5amZnKR3L1ypW6pG2d5nx1zHE5PPARFbB9tkB0js9hA=
 github.com/pkg/errors v0.8.1 h1:iURUrRGxPUNPdy5/HRSm+Yj6okJ6UtLINN0Q9M4+h3I=
 github.com/pkg/errors v0.8.1/go.mod h1:bwawxfHBFNV+L2hUp1rHADufV3IMtnDRdf1r5NINEl0=
-github.impcloud.net/RSP-Inventory-Suite/expect v1.1.0 h1:T9UJAVjWF0x8Z5W9QAECJcUBcOQGz4xs6+uUmTgDC4w=
-github.impcloud.net/RSP-Inventory-Suite/expect v1.1.0/go.mod h1:E+a15BBtQmZpww1wVNivY+9ADMv6jIyVUGPEWX5JuNQ=

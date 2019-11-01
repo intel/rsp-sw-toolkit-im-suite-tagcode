@@ -21,7 +21,7 @@ package epc
 
 import (
 	"fmt"
-	"github.impcloud.net/RSP-Inventory-Suite/expect"
+	"github.com/intel/rsp-sw-toolkit-im-suite-expect"
 	"math"
 	"math/rand"
 	"testing"
@@ -119,8 +119,7 @@ func TestDecodeSGTIN(t *testing.T) {
 			w.As(tt.epc).ShouldSucceed(err)
 
 			if tt.badRange {
-				err = w.As(fmt.Sprintf("%s: %+v", tt.epc, s)).ShouldFail(s.ValidateRanges())
-				w.Logf("%+v", err)
+				w.As(fmt.Sprintf("%s: %+v", tt.epc, s)).ShouldFail(s.ValidateRanges())
 			} else {
 				w.ShouldBeEqual(s.GTIN(), tt.gtin)
 				w.ShouldBeEqual(s.URI(), SGTINPureURIPrefix+":"+tt.uri)

@@ -20,7 +20,7 @@
 package bittag
 
 import (
-	"github.impcloud.net/RSP-Inventory-Suite/expect"
+	"github.com/intel/rsp-sw-toolkit-im-suite-expect"
 	"testing"
 )
 

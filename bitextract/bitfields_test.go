@@ -22,7 +22,7 @@ package bitextract
 import (
 	"encoding/binary"
 	"encoding/hex"
-	"github.impcloud.net/RSP-Inventory-Suite/expect"
+	"github.com/intel/rsp-sw-toolkit-im-suite-expect"
 	"io"
 	"testing"
 )

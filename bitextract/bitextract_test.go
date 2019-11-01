@@ -23,7 +23,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"fmt"
-	"github.impcloud.net/RSP-Inventory-Suite/expect"
+	"github.com/intel/rsp-sw-toolkit-im-suite-expect"
 	"math/big"
 	"math/rand"
 	"testing"
@@ -226,7 +226,6 @@ func TestBitExtractor_Extract(t *testing.T) {
 //
 // goos: windows
 // goarch: amd64
-// pkg: github.impcloud.net/RSP-Inventory-Suite/tagcode/bitbound
 // BenchmarkBitExtractor_Extract-20            10000000    130 ns/op     48 B/op   1 allocs/op
 // BenchmarkBitExtractor_ExtractTo-20          20000000    104 ns/op      0 B/op   0 allocs/op
 // BenchmarkBitStringExtraction-20               500000   3856 ns/op   1072 B/op  10 allocs/op

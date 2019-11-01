@@ -21,7 +21,7 @@ package epc
 
 import (
 	"fmt"
-	"github.impcloud.net/RSP-Inventory-Suite/tagcode/bitextract"
+	"github.com/intel/rsp-sw-toolkit-im-suite-tagcode/bitextract"
 	"strings"
 )
 
